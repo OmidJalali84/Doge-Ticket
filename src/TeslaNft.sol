@@ -1,38 +1,83 @@
-//SPDX-License-Identifier: Unlicense
-pragma solidity ^0.8.0;
+//SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {DogeCoin} from "./Token.sol";
+
+/**
+ * @title Counters
+ * @author Matt Condon (@shrugs)
+ * @dev Provides counters that can only be incremented, decremented or reset. This can be used e.g. to track the number
+ * of elements in a mapping, issuing ERC721 ids, or counting request ids.
+ *
+ * Include with `using Counters for Counters.Counter;`
+ */
+library Counters {
+    struct Counter {
+        // This variable should never be directly accessed by users of the library: interactions must be restricted to
+        // the library's function. As of Solidity v0.5.2, this cannot be enforced, though there is a proposal to add
+        // this feature: see https://github.com/ethereum/solidity/issues/4637
+        uint256 _value; // default: 0
+    }
+
+    function current(Counter storage counter) internal view returns (uint256) {
+        return counter._value;
+    }
+
+    function increment(Counter storage counter) internal {
+        unchecked {
+            counter._value += 1;
+        }
+    }
+
+    function decrement(Counter storage counter) internal {
+        uint256 value = counter._value;
+        require(value > 0, "Counter: decrement overflow");
+        unchecked {
+            counter._value = value - 1;
+        }
+    }
+
+    function reset(Counter storage counter) internal {
+        counter._value = 0;
+    }
+}
 
 contract TeslaNFT is ERC721URIStorage {
     using Counters for Counters.Counter;
     Counters.Counter public _tokenIds;
     Counters.Counter private _itemsSold;
 
-    address private TokenDoge = 0x50dA1888a5e65F387FFC13d2624b3551397FF757;
-    uint public percentPrice = 30;
-    uint private totalDogeWinner;
-    address payable ownerContract;
-    uint public BetId = 1;
-    address private mgmt1;
-    address private mgmt2;
-    uint private totalBalance;
-    uint private feePool;
-    uint private feeMgmt;
-    uint private feeRefral;
-    uint private totalPool;
-    uint private totalMgmt;
-    uint private totalRefral;
+    address private immutable dogeCoinToken;
+    uint256 private nftToCarPecentage = 10;
+    uint256 private betFeePercentage = 0;
+    uint256 private totalDogeWinner;
+    address payable owner;
+    uint256 public betId = 1;
+    address private team;
+    address private futureProject;
+    address private charity;
+    uint256 private feePool;
+    uint256 private feeTeam;
+    uint256 private feeFutureProject;
+    uint256 private feeCharity;
+    uint256 private feeOwnerReferral;
+    uint256 private feeSpenderReferral;
+    uint256 private totalPool;
+    address private recentTotalWinner;
+    address private recentNewWinner;
+    bool private createLock = false;
+    bool private winnerTotalLock = false;
+    bool private winnerNewLock = false;
 
     enum State {
-        IDLE,
         BETTING,
         WINNER
     }
 
-    State public currentState = State.IDLE;
+    State public currentState = State.BETTING;
 
     struct ListedToken {
         string tokenURI;
@@ -41,302 +86,325 @@ contract TeslaNFT is ERC721URIStorage {
         address payable owner;
         uint256 price;
         bytes32 refral;
+        uint256 totalreferralUsed;
         bool listed;
-        uint totalPriceDoge;
+        uint256 totalPriceUSD;
     }
 
     struct Player {
-        uint bet_Id;
-        uint nft_Id;
-        uint amount;
-        uint time;
+        uint256 bet_Id;
+        uint256 nft_Id;
+        uint256 amount;
+        uint256 time;
         address payable nftAddress;
-        uint totalPriceDoge;
-    }
-    struct BetPlayer {
-        address[] players;
-        uint amountRefral;
+        uint256 totalPriceUSD;
     }
 
-    struct Refral {
-        bytes32 refralCode;
-    }
-
-    struct OwnerRefral {
-        bool add;
-    }
-
-    mapping(string => Refral) private refralList;
-    mapping(string => BetPlayer) private betPlayers;
     mapping(uint256 => ListedToken) private idToListedToken;
-    mapping(bytes32 => string) private HashToRefral;
-    mapping(string => mapping(address => mapping(uint => OwnerRefral)))
-        private ownerRefral;
-    Player[] private Totalplayers;
+    mapping(uint256 tokenId => bytes32 referral) private tokenIdToReferral;
+    mapping(bytes32 referral => uint256 tokenId) private referralToTokenId;
+    mapping(bytes32 referralCode => address ownerReferralCode)
+        private referralToOwner;
+
+    Player[] private totalPlayers;
     Player[] private newplayers;
 
-    modifier onlyAdmin() {
-        require(msg.sender == ownerContract, "Only Admin");
-        _;
-    }
-    modifier inState(State state) {
-        require(currentState == state, "current state does not allow this");
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only Admin");
         _;
     }
 
     event createNft(
-        uint indexed tokenId,
+        uint256 indexed tokenId,
         address indexed _address,
         string _tokenURI,
-        uint indexed _lotteryId,
-        uint _timestamp,
+        uint256 indexed _lotteryId,
+        uint256 _timestamp,
         bytes32 _refralcode,
-        uint _totalPriceDoge
+        uint256 _totalPriceUSD
     );
-    event createProgram(
-        uint _betId,
-        address indexed mgmt1,
-        address indexed mgmt2,
-        uint feePool,
-        uint feeMgmt,
-        uint feeRefral,
-        uint _totalDogeWinner,
-        uint _time
-    );
-
     event CreateBet(
-        uint indexed _lotteryId,
-        uint _totalPlayers,
-        uint _nftIdWinner_Players,
+        uint256 indexed _lotteryId,
+        uint256 _totalPlayers,
+        uint256 _nftIdWinner_Players,
         address indexed _winnerPlayers,
-        uint _amount,
-        uint _time
+        uint256 _amount,
+        uint256 _time
     );
 
     event CreateNewBet(
-        uint indexed _lotteryId,
-        uint _totalPlayers,
-        uint _nftIdWinner_Players,
+        uint256 indexed _lotteryId,
+        uint256 _totalPlayers,
+        uint256 _nftIdWinner_Players,
         address indexed _winnerPlayers,
-        uint _amount,
-        uint _time
+        uint256 _amount,
+        uint256 _time
     );
 
-    constructor() ERC721("Tesla-DogeChance", "TDC") {
-        ownerContract = payable(msg.sender);
+    constructor(
+        address _token,
+        address _team,
+        address _futureProject,
+        address _charity,
+        uint256 _feePool,
+        uint256 _feeTeam,
+        uint256 _feeFutureProject,
+        uint256 _feeCharity,
+        uint256 _feeOwnerRefral,
+        uint256 _feeSpenderReferral,
+        uint256 _totalDogeWinner
+    ) ERC721("Tesla-DogeChance", "TDC") {
+        owner = payable(msg.sender);
+        team = _team;
+        futureProject = _futureProject;
+        charity = _charity;
+        feePool = _feePool;
+        feeTeam = _feeTeam;
+        feeFutureProject = _feeFutureProject;
+        feeCharity = _feeCharity;
+        feeOwnerReferral = _feeOwnerRefral;
+        feeSpenderReferral = _feeSpenderReferral;
+        totalDogeWinner = _totalDogeWinner;
+        dogeCoinToken = _token;
     }
 
-    function createBet(
-        address _mgmt1,
-        address _mgmt2,
-        uint _feePool,
-        uint _feeMgmt,
-        uint _feeRefral,
-        uint _totalDogeWinner
-    ) public onlyAdmin inState(State.IDLE) {
-        mgmt1 = _mgmt1;
-        mgmt2 = _mgmt2;
-        feePool = _feePool;
-        feeMgmt = _feeMgmt;
-        feeRefral = _feeRefral;
-        currentState = State.BETTING;
-        totalDogeWinner = _totalDogeWinner;
+    function transferFrom(
+        address from,
+        address to,
+        uint256 tokenId
+    ) public virtual override(ERC721, IERC721) {
+        super.transferFrom(from, to, tokenId);
+        bytes32 referral = tokenIdToReferral[tokenId];
+        referralToOwner[referral] = to;
+    }
 
-        emit createProgram(
-            BetId,
-            _mgmt1,
-            _mgmt2,
-            feePool,
-            feeMgmt,
-            feeRefral,
-            totalDogeWinner,
-            block.timestamp
-        );
+    function safeTransferFrom(
+        address from,
+        address to,
+        uint256 tokenId,
+        bytes memory data
+    ) public virtual override(ERC721, IERC721) {
+        super.safeTransferFrom(from, to, tokenId, data);
+        bytes32 referral = tokenIdToReferral[tokenId];
+        referralToOwner[referral] = to;
     }
 
     function createToken(
         string memory tokenURI,
-        uint256 _price,
+        uint256 totalCarPrice,
         string memory _refralCode,
-        string memory _refralOld,
-        uint _totalPriceDoge
-    ) public inState(State.BETTING) {
-        require(
-            _price <= (IERC20(TokenDoge).allowance(msg.sender, address(this))),
-            "not Enough price"
-        );
-        bytes32 refralCode = generate_bytes_refral(_refralOld);
+        bytes32 _upReferral,
+        uint256 _totalPriceUSD
+    ) public {
+        require(!createLock, "Reentrent");
+        createLock = true;
+
         _tokenIds.increment();
         uint256 currentTokenId = _tokenIds.current();
         _safeMint(msg.sender, currentTokenId);
         _setTokenURI(currentTokenId, tokenURI);
 
-        if (refralCode == refralList[_refralOld].refralCode) {
-            uint price = ((_price * (100 - (100 - feeRefral))) / 100);
-            uint amount = _price - price;
-            IERC20(TokenDoge).transferFrom(msg.sender, address(this), amount);
-            totalPool += ((amount * (100 - (100 - feePool))) / 100);
-            totalMgmt += ((amount * (100 - (100 - feeMgmt))) / 100);
-            totalRefral += ((amount * (100 - (100 - feeRefral))) / 100);
-            totalBalance += amount;
-            betPlayers[_refralOld].players.push(msg.sender);
-            betPlayers[_refralOld].amountRefral += price;
-            refralList[_refralCode].refralCode = generate_bytes_refral(
-                _refralCode
+        uint256 mintPrice = (totalCarPrice * nftToCarPecentage) / 10000;
+        mintPrice = ((mintPrice * (10000 + betFeePercentage)) / 10000);
+
+        if (referralToOwner[_upReferral] != address(0)) {
+            mintPrice = (mintPrice * (100 - feeSpenderReferral)) / 100;
+            require(
+                IERC20(dogeCoinToken).transferFrom(
+                    msg.sender,
+                    address(this),
+                    mintPrice
+                ),
+                "Transfer Failed"
             );
+
+            uint256 referralReward = (mintPrice * feeOwnerReferral) / 100;
+            transferToReferral(referralToOwner[_upReferral], referralReward);
+            idToListedToken[referralToTokenId[_upReferral]].totalreferralUsed++;
+
+            mintPrice = (mintPrice * (100 - feeOwnerReferral)) / 100;
+
+            transferToMgmts(mintPrice);
+
+            totalPool += (mintPrice * feePool) / 100;
+
+            bytes32 referralCode = generate_bytes_refral(_refralCode);
+            referralToOwner[referralCode] = msg.sender;
+            tokenIdToReferral[currentTokenId] = referralCode;
+
             idToListedToken[currentTokenId] = ListedToken(
                 tokenURI,
                 currentTokenId,
-                BetId,
+                betId,
                 payable(msg.sender),
-                amount,
-                generate_bytes_refral(_refralCode),
+                mintPrice,
+                referralCode,
+                0,
                 true,
-                _totalPriceDoge
+                _totalPriceUSD
             );
 
-            ownerRefral[_refralCode][msg.sender][currentTokenId].add = true;
-            refralList[_refralCode].refralCode = generate_bytes_refral(
-                _refralCode
-            );
-            Totalplayers.push(
+            totalPlayers.push(
                 Player({
-                    bet_Id: BetId,
+                    bet_Id: betId,
                     nft_Id: currentTokenId,
-                    amount: amount,
+                    amount: mintPrice,
                     time: block.timestamp,
                     nftAddress: payable(msg.sender),
-                    totalPriceDoge: _totalPriceDoge
+                    totalPriceUSD: _totalPriceUSD
                 })
             );
             newplayers.push(
                 Player({
-                    bet_Id: BetId,
+                    bet_Id: betId,
                     nft_Id: currentTokenId,
-                    amount: amount,
+                    amount: mintPrice,
                     time: block.timestamp,
                     nftAddress: payable(msg.sender),
-                    totalPriceDoge: _totalPriceDoge
+                    totalPriceUSD: _totalPriceUSD
                 })
             );
-            HashToRefral[generate_bytes_refral(_refralCode)] = _refralCode;
             emit createNft(
                 currentTokenId,
                 msg.sender,
                 tokenURI,
-                BetId,
+                betId,
                 block.timestamp,
-                generate_bytes_refral(_refralCode),
-                _totalPriceDoge
+                referralCode,
+                _totalPriceUSD
             );
         } else {
-            IERC20(TokenDoge).transferFrom(msg.sender, address(this), _price);
-            totalPool += ((_price * (100 - (100 - feePool))) / 100);
-            totalMgmt += ((_price * (100 - (100 - feeMgmt))) / 100);
-            totalRefral += ((_price * (100 - (100 - feeRefral))) / 100);
-            totalBalance += _price;
+            require(
+                IERC20(dogeCoinToken).transferFrom(
+                    msg.sender,
+                    address(this),
+                    mintPrice
+                ),
+                "Transfer Failed"
+            );
+
+            transferToMgmts(mintPrice);
+
+            totalPool += (mintPrice * feePool) / 100;
+
+            bytes32 referralCode = generate_bytes_refral(_refralCode);
+            referralToOwner[referralCode] = msg.sender;
+            tokenIdToReferral[currentTokenId] = referralCode;
 
             idToListedToken[currentTokenId] = ListedToken(
                 tokenURI,
                 currentTokenId,
-                BetId,
+                betId,
                 payable(msg.sender),
-                _price,
-                generate_bytes_refral(_refralCode),
+                mintPrice,
+                referralCode,
+                0,
                 true,
-                _totalPriceDoge
+                _totalPriceUSD
             );
-            ownerRefral[_refralCode][msg.sender][currentTokenId].add = true;
-            refralList[_refralCode].refralCode = generate_bytes_refral(
-                _refralCode
-            );
-            Totalplayers.push(
+
+            totalPlayers.push(
                 Player({
-                    bet_Id: BetId,
+                    bet_Id: betId,
                     nft_Id: currentTokenId,
-                    amount: _price,
+                    amount: mintPrice,
                     time: block.timestamp,
                     nftAddress: payable(msg.sender),
-                    totalPriceDoge: _totalPriceDoge
+                    totalPriceUSD: _totalPriceUSD
                 })
             );
             newplayers.push(
                 Player({
-                    bet_Id: BetId,
+                    bet_Id: betId,
                     nft_Id: currentTokenId,
-                    amount: _price,
+                    amount: mintPrice,
                     time: block.timestamp,
                     nftAddress: payable(msg.sender),
-                    totalPriceDoge: _totalPriceDoge
+                    totalPriceUSD: _totalPriceUSD
                 })
             );
-            HashToRefral[generate_bytes_refral(_refralCode)] = _refralCode;
             emit createNft(
                 currentTokenId,
                 msg.sender,
                 tokenURI,
-                BetId,
+                betId,
                 block.timestamp,
-                generate_bytes_refral(_refralCode),
-                _totalPriceDoge
+                referralCode,
+                _totalPriceUSD
             );
         }
+
+        if (totalPool >= totalDogeWinner) {
+            currentState = State.WINNER;
+            createWinnerTotalPlayers("code");
+        }
+        createLock = false;
     }
 
-    function createWinnerTotalPlayers(string memory _code) public onlyAdmin {
+    function createWinnerTotalPlayers(string memory _code) internal {
+        require(!winnerTotalLock, "Reentrent");
+        winnerTotalLock = true;
         require(
             totalDogeWinner <= totalPool,
             "Not Enough Pool for Found winner"
         );
-        uint winnerTotalPlayer = _randomModulo(Totalplayers.length, _code);
-        uint _tokenId = Totalplayers[winnerTotalPlayer].nft_Id;
-        address winnerTotalPlayerAddress = Totalplayers[winnerTotalPlayer]
+        uint256 winnerTotalPlayer = _randomModulo(totalPlayers.length, _code);
+        uint256 _tokenId = totalPlayers[winnerTotalPlayer].nft_Id;
+        address winnerTotalPlayerAddress = totalPlayers[winnerTotalPlayer]
             .nftAddress == ownerOf(_tokenId)
-            ? Totalplayers[winnerTotalPlayer].nftAddress
+            ? totalPlayers[winnerTotalPlayer].nftAddress
             : ownerOf(_tokenId);
 
-        // uint p_winner=Totalplayers[winnerTotalPlayer].amount ;
-        uint priceWinner = totalDogeWinner / 2;
+        // uint256 p_winner=totalPlayers[winnerTotalPlayer].amount ;
+        uint256 priceWinner = totalPool / 2;
 
-        IERC20(TokenDoge).transfer(
-            payable(winnerTotalPlayerAddress),
-            priceWinner
+        require(
+            IERC20(dogeCoinToken).transfer(
+                payable(winnerTotalPlayerAddress),
+                priceWinner
+            ),
+            "Transfer Failed"
         );
 
         emit CreateBet(
-            BetId,
-            Totalplayers.length,
-            Totalplayers[winnerTotalPlayer].nft_Id,
+            betId,
+            totalPlayers.length,
+            totalPlayers[winnerTotalPlayer].nft_Id,
             winnerTotalPlayerAddress,
             priceWinner,
             block.timestamp
         );
         deleteIndexArray(winnerTotalPlayer);
         totalPool -= priceWinner;
-        totalDogeWinner -= priceWinner;
-        currentState = State.WINNER;
+        recentTotalWinner = winnerTotalPlayerAddress;
+
+        createWinnerNewPlayers("code");
+        winnerTotalLock = false;
     }
 
-    function createWinnerNewPlayers(
-        string memory _code
-    ) public onlyAdmin inState(State.WINNER) {
-        uint winnerNewPlayer = _randomModulo(newplayers.length, _code);
-        uint _tokenId = newplayers[winnerNewPlayer].nft_Id;
+    function createWinnerNewPlayers(string memory _code) internal {
+        require(!winnerNewLock, "Reentrent");
+        winnerNewLock = true;
+        uint256 winnerNewPlayer = _randomModulo(newplayers.length, _code);
+        uint256 _tokenId = newplayers[winnerNewPlayer].nft_Id;
         address winnerwinnerNewPlayerAddress = newplayers[winnerNewPlayer]
             .nftAddress == ownerOf(_tokenId)
             ? newplayers[winnerNewPlayer].nftAddress
             : ownerOf(_tokenId);
 
-        // uint p_winner=Totalplayers[winnerNewPlayer].amount;
-        uint priceWinner = totalDogeWinner;
+        // uint256 p_winner=totalPlayers[winnerNewPlayer].amount;
+        uint256 priceWinner = totalPool;
 
-        IERC20(TokenDoge).transfer(
-            payable(winnerwinnerNewPlayerAddress),
-            priceWinner
+        require(
+            IERC20(dogeCoinToken).transfer(
+                payable(winnerwinnerNewPlayerAddress),
+                priceWinner
+            ),
+            "Transfer Failed"
         );
 
         emit CreateNewBet(
-            BetId,
+            betId,
             newplayers.length,
             newplayers[winnerNewPlayer].nft_Id,
             winnerwinnerNewPlayerAddress,
@@ -344,161 +412,82 @@ contract TeslaNFT is ERC721URIStorage {
             block.timestamp
         );
 
+        recentNewWinner = winnerwinnerNewPlayerAddress;
         delete newplayers;
-        totalPool -= priceWinner;
-        BetId++;
-        percentPrice += 3;
-        totalDogeWinner = 0;
-        currentState = State.IDLE;
+        totalPool = 0;
+        betId++;
+        betFeePercentage = betFeePercentage + 210;
+        winnerNewLock = false;
     }
 
-    function clamRefralCode(string memory _code, uint _tokenId) public {
-        require(ownerOf(_tokenId) == msg.sender, "Not all");
-        uint amount = betPlayers[_code].amountRefral;
-        address RedralAddress = ownerOf(_tokenId);
-        IERC20(TokenDoge).transfer(RedralAddress, amount);
-        betPlayers[_code].amountRefral -= amount;
-        totalRefral -= amount;
-        delete betPlayers[_code].players;
+    function transferToMgmts(uint256 amount) internal {
+        require(
+            IERC20(dogeCoinToken).transfer(team, (amount * feeTeam) / 100),
+            "Transfer To Team Failed"
+        );
+        require(
+            IERC20(dogeCoinToken).transfer(
+                futureProject,
+                (amount * feeFutureProject) / 100
+            ),
+            "Transfer To Future Project Failed"
+        );
+        require(
+            IERC20(dogeCoinToken).transfer(
+                charity,
+                (amount * feeCharity) / 100
+            ),
+            "Transfer To Charity Failed"
+        );
     }
 
-    function whitdraw_Mgmt1() public onlyAdmin {
-        uint amount = totalMgmt / 2;
-        IERC20(TokenDoge).transfer(mgmt1, amount);
-        totalMgmt = amount;
-    }
-
-    function whitdraw_Mgmt2() public onlyAdmin {
-        IERC20(TokenDoge).transfer(mgmt2, totalMgmt);
-        totalMgmt = 0;
-    }
-
-    function getCount(address account) public view returns (uint256) {
-        return IERC20(TokenDoge).balanceOf(account);
-    }
-
-    function Approvetokens(uint256 _tokenamount) public returns (bool) {
-        IERC20(TokenDoge).approve(address(this), _tokenamount);
-        return true;
+    function transferToReferral(
+        address referralOwner,
+        uint256 amount
+    ) internal {
+        require(
+            IERC20(dogeCoinToken).transfer(referralOwner, amount),
+            "Transfer To Owner Referral Failed"
+        );
     }
 
     function generate_bytes_refral(
         string memory _pass
-    ) public pure returns (bytes32) {
+    ) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(_pass));
     }
 
-    function generate_hash_refral(
-        bytes32 hash,
-        uint tokenId
-    ) public view returns (string memory) {
-        require(ownerOf(tokenId) == msg.sender, "Not all");
-        return HashToRefral[hash];
-    }
-
-    function showRefralUsers(
-        string memory refral,
-        uint tokenId
-    ) public view returns (address[] memory) {
-        require(ownerOf(tokenId) == msg.sender, "Not all");
-        return betPlayers[refral].players;
-    }
-
-    function showRefralUserAmount(
-        string memory refral,
-        uint tokenId
-    ) public view returns (uint) {
-        require(ownerOf(tokenId) == msg.sender, "Not all");
-        return betPlayers[refral].amountRefral;
-    }
-
-    function VerifyRefralCode(string memory refral) public view returns (bool) {
-        if (generate_bytes_refral(refral) == refralList[refral].refralCode) {
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    function veriftyRefralWithAddressAndTokenId(
-        string memory _code,
-        address _add,
-        uint _tokenId
-    ) public view returns (bool) {
-        return ownerRefral[_code][_add][_tokenId].add;
-    }
-
     function _randomModulo(
-        uint madulo,
+        uint256 madulo,
         string memory code
-    ) internal view returns (uint) {
+    ) internal view returns (uint256) {
         return
-            uint(keccak256(abi.encodePacked(block.timestamp, code))) % madulo;
+            uint256(keccak256(abi.encodePacked(block.timestamp, code))) %
+            madulo;
     }
 
-    function showTotalPlayers() public view returns (Player[] memory) {
-        return Totalplayers;
-    }
-
-    function showNewPlayers() public view returns (Player[] memory) {
-        return newplayers;
-    }
-
-    function deleteIndexArray(uint index) public {
-        for (uint i = index; i < Totalplayers.length - 1; i++) {
-            Totalplayers[i] = Totalplayers[i + 1];
+    function deleteIndexArray(uint256 index) internal {
+        for (uint256 i = index; i < totalPlayers.length - 1; i++) {
+            totalPlayers[i] = totalPlayers[i + 1];
         }
-        Totalplayers.pop();
-    }
-
-    function totalNewPlayers() public view returns (Player[] memory) {
-        return newplayers;
-    }
-
-    function showTotalBalance() public view returns (uint) {
-        return address(this).balance;
-    }
-
-    function showTotalBalanceDoge() public view returns (uint) {
-        return IERC20(TokenDoge).balanceOf(address(this));
-    }
-
-    function showTotalPool() public view returns (uint) {
-        return totalPool;
-    }
-
-    function showTotalMgmt() public view returns (uint) {
-        return totalMgmt;
-    }
-
-    function showTotalRefral() public view returns (uint) {
-        return totalRefral;
-    }
-
-    function showOwnerAddress() public view returns (address) {
-        return ownerContract;
-    }
-
-    function getPriceDogeToUsd() public pure returns (uint) {
-        uint price = 1596;
-        return price;
+        totalPlayers.pop();
     }
 
     function getMyNFTs() public view returns (ListedToken[] memory) {
-        uint totalItemCount = _tokenIds.current();
-        uint itemCount = 0;
-        uint currentIndex = 0;
+        uint256 totalItemCount = _tokenIds.current();
+        uint256 itemCount = 0;
+        uint256 currentIndex = 0;
 
-        for (uint i = 0; i < totalItemCount; i++) {
+        for (uint256 i = 0; i < totalItemCount; i++) {
             if (ownerOf(i + 1) == msg.sender) {
                 itemCount += 1;
             }
         }
 
         ListedToken[] memory items = new ListedToken[](itemCount);
-        for (uint i = 0; i < totalItemCount; i++) {
+        for (uint256 i = 0; i < totalItemCount; i++) {
             if (ownerOf(i + 1) == msg.sender) {
-                uint currentId = i + 1;
+                uint256 currentId = i + 1;
                 ListedToken storage currentItem = idToListedToken[currentId];
                 items[currentIndex] = currentItem;
                 currentIndex += 1;
@@ -508,24 +497,67 @@ contract TeslaNFT is ERC721URIStorage {
         return items;
     }
 
-    function getListedForTokenId(
-        uint256 tokenId
-    ) public view returns (ListedToken memory) {
-        require(ownerOf(tokenId) == msg.sender, "Not all");
-        return idToListedToken[tokenId];
-    }
-
     function getAllNFTs() public view returns (ListedToken[] memory) {
-        uint nftCount = _tokenIds.current();
+        uint256 nftCount = _tokenIds.current();
         ListedToken[] memory tokens = new ListedToken[](nftCount);
 
-        uint currentIndex = 0;
-        for (uint i = 0; i < nftCount; i++) {
-            uint currentId = i + 1;
+        uint256 currentIndex = 0;
+        for (uint256 i = 0; i < nftCount; i++) {
+            uint256 currentId = i + 1;
             ListedToken storage currentItem = idToListedToken[currentId];
             tokens[currentIndex] = currentItem;
             currentIndex += 1;
         }
         return tokens;
+    }
+
+    function getTotalPlayers() public view returns (Player[] memory) {
+        return totalPlayers;
+    }
+
+    function getNewPlayers() public view returns (Player[] memory) {
+        return newplayers;
+    }
+
+    function getTotalPool() public view returns (uint256) {
+        return totalPool;
+    }
+
+    function getOwnerAddress() public view returns (address) {
+        return owner;
+    }
+
+    function getRecentTotalWinner() public view returns (address) {
+        return recentTotalWinner;
+    }
+
+    function getRecentNewWinner() public view returns (address) {
+        return recentNewWinner;
+    }
+
+    function getReferralCodeById(
+        uint256 tokenId
+    ) public view returns (bytes32) {
+        return tokenIdToReferral[tokenId];
+    }
+
+    function getTokenIdByReferral(
+        bytes32 referral
+    ) public view returns (uint256) {
+        return referralToTokenId[referral];
+    }
+
+    function getNftToCarPercentage() public view returns (uint256) {
+        return nftToCarPecentage;
+    }
+
+    function getBetFeePercentage() public view returns (uint256) {
+        return betFeePercentage;
+    }
+
+    function getListedTokenFromId(
+        uint256 tokenId
+    ) public view returns (ListedToken memory) {
+        return idToListedToken[tokenId];
     }
 }
