@@ -23,6 +23,27 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./Counters.sol";
 import {console} from "forge-std/console.sol";
 
+struct ListedToken {
+    string tokenURI;
+    uint256 tokenId;
+    uint256 betId;
+    address payable owner;
+    uint256 price;
+    bytes32 refral;
+    uint256 totalreferralUsed;
+    bool listed;
+    uint256 totalPriceUSD;
+}
+
+struct Player {
+    uint256 bet_Id;
+    uint256 nft_Id;
+    uint256 amount;
+    uint256 time;
+    address payable nftAddress;
+    uint256 totalPriceUSD;
+}
+
 contract TeslaNFT is ERC721URIStorage {
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -80,27 +101,6 @@ contract TeslaNFT is ERC721URIStorage {
     bool private createLock = false;
     bool private winnerTotalLock = false;
     bool private winnerNewLock = false;
-
-    struct ListedToken {
-        string tokenURI;
-        uint256 tokenId;
-        uint256 betId;
-        address payable owner;
-        uint256 price;
-        bytes32 refral;
-        uint256 totalreferralUsed;
-        bool listed;
-        uint256 totalPriceUSD;
-    }
-
-    struct Player {
-        uint256 bet_Id;
-        uint256 nft_Id;
-        uint256 amount;
-        uint256 time;
-        address payable nftAddress;
-        uint256 totalPriceUSD;
-    }
 
     /*//////////////////////////////////////////////////////////////
                                MODIFIERS

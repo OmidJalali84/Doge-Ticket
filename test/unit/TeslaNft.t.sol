@@ -2,7 +2,7 @@
 pragma solidity 0.8.20;
 
 import {Test, console} from "forge-std/Test.sol";
-import {TeslaNFT} from "../../src/TeslaNft.sol";
+import {TeslaNFT, ListedToken} from "../../src/TeslaNft.sol";
 import {DogeCoin} from "../../src/Token.sol";
 
 contract testTeslaNft is Test {
@@ -100,7 +100,7 @@ contract testTeslaNft is Test {
         tesla.createToken("", ENTRY_AMOUNT, "jgtvujh", referral, ENTRY_AMOUNT);
         vm.stopPrank();
         uint256 tokenId = tesla.getTokenIdByReferral(referral);
-        TeslaNFT.ListedToken memory token = tesla.getListedTokenFromId(tokenId);
+        ListedToken memory token = tesla.getListedTokenFromId(tokenId);
         vm.assertEq(token.totalreferralUsed, 1);
         vm.assertEq(dogeCoin.balanceOf(user2), 0);
         vm.assertEq(dogeCoin.balanceOf(user1), 1512e17);
@@ -115,7 +115,7 @@ contract testTeslaNft is Test {
         createNft(user3, "referral2", referral);
 
         uint256 tokenId = tesla.getTokenIdByReferral(referral);
-        TeslaNFT.ListedToken memory token = tesla.getListedTokenFromId(tokenId);
+        ListedToken memory token = tesla.getListedTokenFromId(tokenId);
         vm.assertEq(token.totalreferralUsed, 1);
         vm.assertEq(dogeCoin.balanceOf(user1), 0);
         vm.assertEq(dogeCoin.balanceOf(user2), 1512e17);
