@@ -2,8 +2,8 @@
 pragma solidity 0.8.20;
 
 import {Test, console} from "forge-std/Test.sol";
-import {TeslaNFT} from "../src/TeslaNft.sol";
-import {DogeCoin} from "../src/Token.sol";
+import {TeslaNFT} from "../../src/TeslaNft.sol";
+import {DogeCoin} from "../../src/Token.sol";
 
 contract testTeslaNft is Test {
     TeslaNFT tesla;
@@ -126,5 +126,37 @@ contract testTeslaNft is Test {
         vm.assertEq(dogeCoin.balanceOf(team), 168e18);
         vm.assertEq(dogeCoin.balanceOf(futureProject), 168e18);
         vm.assertEq(dogeCoin.balanceOf(charity), 64e18);
+    }
+
+    function testRevertIfSomeOneUseHisOwnReferral() public {
+        createNft(user1, "referral1", "wlksgnkwsgnw");
+        vm.prank(user1);
+        bytes32 referral = tesla.getReferralCodeById(1);
+        address owner = tesla.getReferralOwner(referral);
+        vm.assertEq(owner, user1);
+
+        uint256 nftToCarPercentage = tesla.getNftToCarPercentage();
+        uint256 betFeePercentage = tesla.getBetFeePercentage();
+        dogeCoin.transfer(
+            user1,
+            (((ENTRY_AMOUNT * nftToCarPercentage) *
+                (10000 + betFeePercentage)) / 1e8)
+        );
+        vm.startPrank(user1);
+        dogeCoin.approve(
+            address(tesla),
+            (((ENTRY_AMOUNT * nftToCarPercentage) *
+                (10000 + betFeePercentage)) / 1e8)
+        );
+
+        vm.expectRevert();
+        tesla.createToken(
+            "kshfvbksnvklwnj",
+            ENTRY_AMOUNT,
+            "referral2",
+            referral,
+            ENTRY_AMOUNT
+        );
+        vm.stopPrank();
     }
 }

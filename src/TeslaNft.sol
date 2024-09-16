@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {DogeCoin} from "./Token.sol";
+import {console} from "forge-std/console.sol";
 
 /**
  * @title Counters
@@ -48,26 +48,29 @@ library Counters {
 contract TeslaNFT is ERC721URIStorage {
     using Counters for Counters.Counter;
     Counters.Counter public _tokenIds;
-    Counters.Counter private _itemsSold;
 
-    address private immutable dogeCoinToken;
-    uint256 private nftToCarPecentage = 10;
-    uint256 private betFeePercentage = 0;
-    uint256 private totalDogeWinner;
+    address public immutable dogeCoinToken;
+    uint256 public nftToCarPecentage = 10;
+    uint256 public betFeePercentage = 0;
+    uint256 public totalDogeWinner;
     address payable owner;
     uint256 public betId = 1;
-    address private team;
-    address private futureProject;
-    address private charity;
-    uint256 private feePool;
-    uint256 private feeTeam;
-    uint256 private feeFutureProject;
-    uint256 private feeCharity;
-    uint256 private feeOwnerReferral;
-    uint256 private feeSpenderReferral;
-    uint256 private totalPool;
-    address private recentTotalWinner;
-    address private recentNewWinner;
+    address public team;
+    address public futureProject;
+    address public charity;
+    uint256 public feePool;
+    uint256 public feeTeam;
+    uint256 public feeFutureProject;
+    uint256 public feeCharity;
+    uint256 public feeOwnerReferral;
+    uint256 public feeSpenderReferral;
+    uint256 public totalPool;
+
+    address public recentTotalWinner;
+    address public recentNewWinner;
+    uint256 public lastTotalReward;
+    uint256 public lastNewReward;
+
     bool private createLock = false;
     bool private winnerTotalLock = false;
     bool private winnerNewLock = false;
@@ -102,9 +105,10 @@ contract TeslaNFT is ERC721URIStorage {
 
     mapping(uint256 => ListedToken) private idToListedToken;
     mapping(uint256 tokenId => bytes32 referral) private tokenIdToReferral;
-    mapping(bytes32 referral => uint256 tokenId) private referralToTokenId;
+    mapping(bytes32 referralCode => uint256 tokenId) private referralToTokenId;
     mapping(bytes32 referralCode => address ownerReferralCode)
         private referralToOwner;
+    mapping(bytes32 referralCode => bool hasCreated) private referralHasCreated;
 
     Player[] private totalPlayers;
     Player[] private newplayers;
@@ -114,13 +118,13 @@ contract TeslaNFT is ERC721URIStorage {
         _;
     }
 
-    event createNft(
+    event CreateNft(
         uint256 indexed tokenId,
         address indexed _address,
         string _tokenURI,
         uint256 indexed _lotteryId,
         uint256 _timestamp,
-        bytes32 _refralcode,
+        bytes32 _referralCode,
         uint256 _totalPriceUSD
     );
     event CreateBet(
@@ -192,12 +196,16 @@ contract TeslaNFT is ERC721URIStorage {
     function createToken(
         string memory tokenURI,
         uint256 totalCarPrice,
-        string memory _refralCode,
+        string memory _referralCode,
         bytes32 _upReferral,
         uint256 _totalPriceUSD
     ) public {
         require(!createLock, "Reentrent");
         createLock = true;
+
+        bytes32 referralCode = generate_bytes_refral(_referralCode);
+        require(!referralHasCreated[referralCode], "Referral Already Created");
+        referralHasCreated[referralCode] = true;
 
         _tokenIds.increment();
         uint256 currentTokenId = _tokenIds.current();
@@ -208,6 +216,11 @@ contract TeslaNFT is ERC721URIStorage {
         mintPrice = ((mintPrice * (10000 + betFeePercentage)) / 10000);
 
         if (referralToOwner[_upReferral] != address(0)) {
+            require(
+                referralToOwner[_upReferral] != msg.sender,
+                "Referral can not be used by referral owner"
+            );
+
             mintPrice = (mintPrice * (100 - feeSpenderReferral)) / 100;
             require(
                 IERC20(dogeCoinToken).transferFrom(
@@ -228,9 +241,9 @@ contract TeslaNFT is ERC721URIStorage {
 
             totalPool += (mintPrice * feePool) / 100;
 
-            bytes32 referralCode = generate_bytes_refral(_refralCode);
             referralToOwner[referralCode] = msg.sender;
             tokenIdToReferral[currentTokenId] = referralCode;
+            referralToTokenId[referralCode] = currentTokenId;
 
             idToListedToken[currentTokenId] = ListedToken(
                 tokenURI,
@@ -264,7 +277,7 @@ contract TeslaNFT is ERC721URIStorage {
                     totalPriceUSD: _totalPriceUSD
                 })
             );
-            emit createNft(
+            emit CreateNft(
                 currentTokenId,
                 msg.sender,
                 tokenURI,
@@ -287,7 +300,6 @@ contract TeslaNFT is ERC721URIStorage {
 
             totalPool += (mintPrice * feePool) / 100;
 
-            bytes32 referralCode = generate_bytes_refral(_refralCode);
             referralToOwner[referralCode] = msg.sender;
             tokenIdToReferral[currentTokenId] = referralCode;
 
@@ -323,7 +335,7 @@ contract TeslaNFT is ERC721URIStorage {
                     totalPriceUSD: _totalPriceUSD
                 })
             );
-            emit createNft(
+            emit CreateNft(
                 currentTokenId,
                 msg.sender,
                 tokenURI,
@@ -376,6 +388,7 @@ contract TeslaNFT is ERC721URIStorage {
         );
         deleteIndexArray(winnerTotalPlayer);
         totalPool -= priceWinner;
+        lastTotalReward = priceWinner;
         recentTotalWinner = winnerTotalPlayerAddress;
 
         createWinnerNewPlayers("code");
@@ -387,7 +400,7 @@ contract TeslaNFT is ERC721URIStorage {
         winnerNewLock = true;
         uint256 winnerNewPlayer = _randomModulo(newplayers.length, _code);
         uint256 _tokenId = newplayers[winnerNewPlayer].nft_Id;
-        address winnerwinnerNewPlayerAddress = newplayers[winnerNewPlayer]
+        address winnerNewPlayerAddress = newplayers[winnerNewPlayer]
             .nftAddress == ownerOf(_tokenId)
             ? newplayers[winnerNewPlayer].nftAddress
             : ownerOf(_tokenId);
@@ -397,7 +410,7 @@ contract TeslaNFT is ERC721URIStorage {
 
         require(
             IERC20(dogeCoinToken).transfer(
-                payable(winnerwinnerNewPlayerAddress),
+                payable(winnerNewPlayerAddress),
                 priceWinner
             ),
             "Transfer Failed"
@@ -407,12 +420,13 @@ contract TeslaNFT is ERC721URIStorage {
             betId,
             newplayers.length,
             newplayers[winnerNewPlayer].nft_Id,
-            winnerwinnerNewPlayerAddress,
+            winnerNewPlayerAddress,
             priceWinner,
             block.timestamp
         );
 
-        recentNewWinner = winnerwinnerNewPlayerAddress;
+        recentNewWinner = winnerNewPlayerAddress;
+        lastNewReward = priceWinner;
         delete newplayers;
         totalPool = 0;
         betId++;
@@ -523,6 +537,10 @@ contract TeslaNFT is ERC721URIStorage {
         return totalPool;
     }
 
+    function getTotalDogeWinner() public view returns (uint256) {
+        return totalDogeWinner;
+    }
+
     function getOwnerAddress() public view returns (address) {
         return owner;
     }
@@ -539,6 +557,10 @@ contract TeslaNFT is ERC721URIStorage {
         uint256 tokenId
     ) public view returns (bytes32) {
         return tokenIdToReferral[tokenId];
+    }
+
+    function getReferralOwner(bytes32 referral) public view returns (address) {
+        return referralToOwner[referral];
     }
 
     function getTokenIdByReferral(
@@ -559,5 +581,24 @@ contract TeslaNFT is ERC721URIStorage {
         uint256 tokenId
     ) public view returns (ListedToken memory) {
         return idToListedToken[tokenId];
+    }
+
+    function getBetId() public view returns (uint256) {
+        return betId;
+    }
+
+    function getLastTotalReward() public view returns (uint256) {
+        return lastTotalReward;
+    }
+
+    function getLastNewReward() public view returns (uint256) {
+        return lastNewReward;
+    }
+
+    function getReferralHasCreated(
+        string memory referralString
+    ) public view returns (bool) {
+        bytes32 referralBytes = keccak256(abi.encodePacked(referralString));
+        return referralHasCreated[referralBytes];
     }
 }
