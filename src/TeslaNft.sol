@@ -46,9 +46,35 @@ library Counters {
 }
 
 contract TeslaNFT is ERC721URIStorage {
+    /*//////////////////////////////////////////////////////////////
+                                 ERRORS
+    //////////////////////////////////////////////////////////////*/
+    error DogeTicket__OnlyOwner(address account);
+    error DogeTicket__ReferralCanNotBeUsedByReferralOwner();
+    error DogeTicket__ReferralAlreadyCreated();
+    error DogeTicket__ReentrencyCall();
+    error DogeTicket__TransferFailed();
+
+    /*//////////////////////////////////////////////////////////////
+                            STATE VARIABLES
+    //////////////////////////////////////////////////////////////*/
+
+    //Mappings
+    mapping(uint256 => ListedToken) private idToListedToken;
+    mapping(uint256 tokenId => bytes32 referral) private tokenIdToReferral;
+    mapping(bytes32 referralCode => uint256 tokenId) private referralToTokenId;
+    mapping(bytes32 referralCode => address ownerReferralCode)
+        private referralToOwner;
+    mapping(bytes32 referralCode => bool hasCreated) private referralHasCreated;
+
+    Player[] private totalPlayers;
+    Player[] private newplayers;
+
+    //Counter Variables
     using Counters for Counters.Counter;
     Counters.Counter public _tokenIds;
 
+    //Initial Variables
     address public immutable dogeCoinToken;
     uint256 public nftToCarPecentage = 10;
     uint256 public betFeePercentage = 0;
@@ -66,21 +92,16 @@ contract TeslaNFT is ERC721URIStorage {
     uint256 public feeSpenderReferral;
     uint256 public totalPool;
 
+    //Getter variables
     address public recentTotalWinner;
     address public recentNewWinner;
     uint256 public lastTotalReward;
     uint256 public lastNewReward;
 
+    //Reentrency Lock Variables
     bool private createLock = false;
     bool private winnerTotalLock = false;
     bool private winnerNewLock = false;
-
-    enum State {
-        BETTING,
-        WINNER
-    }
-
-    State public currentState = State.BETTING;
 
     struct ListedToken {
         string tokenURI;
@@ -103,20 +124,20 @@ contract TeslaNFT is ERC721URIStorage {
         uint256 totalPriceUSD;
     }
 
-    mapping(uint256 => ListedToken) private idToListedToken;
-    mapping(uint256 tokenId => bytes32 referral) private tokenIdToReferral;
-    mapping(bytes32 referralCode => uint256 tokenId) private referralToTokenId;
-    mapping(bytes32 referralCode => address ownerReferralCode)
-        private referralToOwner;
-    mapping(bytes32 referralCode => bool hasCreated) private referralHasCreated;
-
-    Player[] private totalPlayers;
-    Player[] private newplayers;
+    /*//////////////////////////////////////////////////////////////
+                               MODIFIERS
+    //////////////////////////////////////////////////////////////*/
 
     modifier onlyOwner() {
-        require(msg.sender == owner, "Only Admin");
+        if (msg.sender != owner) {
+            revert DogeTicket__OnlyOwner(msg.sender);
+        }
         _;
     }
+
+    /*//////////////////////////////////////////////////////////////
+                               EVENTS
+    //////////////////////////////////////////////////////////////*/
 
     event CreateNft(
         uint256 indexed tokenId,
@@ -145,6 +166,10 @@ contract TeslaNFT is ERC721URIStorage {
         uint256 _time
     );
 
+    /*//////////////////////////////////////////////////////////////
+                               FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
     constructor(
         address _token,
         address _team,
@@ -172,6 +197,10 @@ contract TeslaNFT is ERC721URIStorage {
         dogeCoinToken = _token;
     }
 
+    /*//////////////////////////////////////////////////////////////
+                           ERC721 FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
     function transferFrom(
         address from,
         address to,
@@ -193,18 +222,26 @@ contract TeslaNFT is ERC721URIStorage {
         referralToOwner[referral] = to;
     }
 
+    /*//////////////////////////////////////////////////////////////
+                          EXTERNAL FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
     function createToken(
         string memory tokenURI,
         uint256 totalCarPrice,
         string memory _referralCode,
         bytes32 _upReferral,
         uint256 _totalPriceUSD
-    ) public {
-        require(!createLock, "Reentrent");
+    ) external {
+        if (createLock) {
+            revert DogeTicket__ReentrencyCall();
+        }
         createLock = true;
 
         bytes32 referralCode = generate_bytes_refral(_referralCode);
-        require(!referralHasCreated[referralCode], "Referral Already Created");
+        if (referralHasCreated[referralCode]) {
+            revert DogeTicket__ReferralAlreadyCreated();
+        }
         referralHasCreated[referralCode] = true;
 
         _tokenIds.increment();
@@ -216,20 +253,20 @@ contract TeslaNFT is ERC721URIStorage {
         mintPrice = ((mintPrice * (10000 + betFeePercentage)) / 10000);
 
         if (referralToOwner[_upReferral] != address(0)) {
-            require(
-                referralToOwner[_upReferral] != msg.sender,
-                "Referral can not be used by referral owner"
-            );
+            if (referralToOwner[_upReferral] == msg.sender) {
+                revert DogeTicket__ReferralCanNotBeUsedByReferralOwner();
+            }
 
             mintPrice = (mintPrice * (100 - feeSpenderReferral)) / 100;
-            require(
-                IERC20(dogeCoinToken).transferFrom(
-                    msg.sender,
-                    address(this),
-                    mintPrice
-                ),
-                "Transfer Failed"
+
+            bool success = IERC20(dogeCoinToken).transferFrom(
+                msg.sender,
+                address(this),
+                mintPrice
             );
+            if (!success) {
+                revert DogeTicket__TransferFailed();
+            }
 
             uint256 referralReward = (mintPrice * feeOwnerReferral) / 100;
             transferToReferral(referralToOwner[_upReferral], referralReward);
@@ -287,14 +324,14 @@ contract TeslaNFT is ERC721URIStorage {
                 _totalPriceUSD
             );
         } else {
-            require(
-                IERC20(dogeCoinToken).transferFrom(
-                    msg.sender,
-                    address(this),
-                    mintPrice
-                ),
-                "Transfer Failed"
+            bool success = IERC20(dogeCoinToken).transferFrom(
+                msg.sender,
+                address(this),
+                mintPrice
             );
+            if (!success) {
+                revert DogeTicket__TransferFailed();
+            }
 
             transferToMgmts(mintPrice);
 
@@ -347,19 +384,21 @@ contract TeslaNFT is ERC721URIStorage {
         }
 
         if (totalPool >= totalDogeWinner) {
-            currentState = State.WINNER;
             createWinnerTotalPlayers("code");
         }
         createLock = false;
     }
 
+    /*//////////////////////////////////////////////////////////////
+                          NTERNAL FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
     function createWinnerTotalPlayers(string memory _code) internal {
-        require(!winnerTotalLock, "Reentrent");
+        if (createLock) {
+            revert DogeTicket__ReentrencyCall();
+        }
         winnerTotalLock = true;
-        require(
-            totalDogeWinner <= totalPool,
-            "Not Enough Pool for Found winner"
-        );
+
         uint256 winnerTotalPlayer = _randomModulo(totalPlayers.length, _code);
         uint256 _tokenId = totalPlayers[winnerTotalPlayer].nft_Id;
         address winnerTotalPlayerAddress = totalPlayers[winnerTotalPlayer]
@@ -370,13 +409,14 @@ contract TeslaNFT is ERC721URIStorage {
         // uint256 p_winner=totalPlayers[winnerTotalPlayer].amount ;
         uint256 priceWinner = totalPool / 2;
 
-        require(
-            IERC20(dogeCoinToken).transfer(
-                payable(winnerTotalPlayerAddress),
-                priceWinner
-            ),
-            "Transfer Failed"
+        bool success = IERC20(dogeCoinToken).transfer(
+            payable(winnerTotalPlayerAddress),
+            priceWinner
         );
+
+        if (!success) {
+            revert DogeTicket__TransferFailed();
+        }
 
         emit CreateBet(
             betId,
@@ -396,7 +436,9 @@ contract TeslaNFT is ERC721URIStorage {
     }
 
     function createWinnerNewPlayers(string memory _code) internal {
-        require(!winnerNewLock, "Reentrent");
+        if (createLock) {
+            revert DogeTicket__ReentrencyCall();
+        }
         winnerNewLock = true;
         uint256 winnerNewPlayer = _randomModulo(newplayers.length, _code);
         uint256 _tokenId = newplayers[winnerNewPlayer].nft_Id;
@@ -408,13 +450,14 @@ contract TeslaNFT is ERC721URIStorage {
         // uint256 p_winner=totalPlayers[winnerNewPlayer].amount;
         uint256 priceWinner = totalPool;
 
-        require(
-            IERC20(dogeCoinToken).transfer(
-                payable(winnerNewPlayerAddress),
-                priceWinner
-            ),
-            "Transfer Failed"
+        bool success = IERC20(dogeCoinToken).transfer(
+            payable(winnerNewPlayerAddress),
+            priceWinner
         );
+
+        if (!success) {
+            revert DogeTicket__TransferFailed();
+        }
 
         emit CreateNewBet(
             betId,
@@ -435,34 +478,35 @@ contract TeslaNFT is ERC721URIStorage {
     }
 
     function transferToMgmts(uint256 amount) internal {
-        require(
-            IERC20(dogeCoinToken).transfer(team, (amount * feeTeam) / 100),
-            "Transfer To Team Failed"
+        bool success1 = IERC20(dogeCoinToken).transfer(
+            team,
+            (amount * feeTeam) / 100
         );
-        require(
-            IERC20(dogeCoinToken).transfer(
-                futureProject,
-                (amount * feeFutureProject) / 100
-            ),
-            "Transfer To Future Project Failed"
+
+        bool success2 = IERC20(dogeCoinToken).transfer(
+            futureProject,
+            (amount * feeFutureProject) / 100
         );
-        require(
-            IERC20(dogeCoinToken).transfer(
-                charity,
-                (amount * feeCharity) / 100
-            ),
-            "Transfer To Charity Failed"
+
+        bool success3 = IERC20(dogeCoinToken).transfer(
+            charity,
+            (amount * feeCharity) / 100
         );
+
+        if (!success1 || !success2 || !success3) {
+            revert DogeTicket__TransferFailed();
+        }
     }
 
     function transferToReferral(
         address referralOwner,
         uint256 amount
     ) internal {
-        require(
-            IERC20(dogeCoinToken).transfer(referralOwner, amount),
-            "Transfer To Owner Referral Failed"
-        );
+        bool success = IERC20(dogeCoinToken).transfer(referralOwner, amount);
+
+        if (!success) {
+            revert DogeTicket__TransferFailed();
+        }
     }
 
     function generate_bytes_refral(
@@ -486,6 +530,10 @@ contract TeslaNFT is ERC721URIStorage {
         }
         totalPlayers.pop();
     }
+
+    /*//////////////////////////////////////////////////////////////
+                       VIEW AND PURE FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     function getMyNFTs() public view returns (ListedToken[] memory) {
         uint256 totalItemCount = _tokenIds.current();
