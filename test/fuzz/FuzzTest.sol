@@ -6,8 +6,9 @@ import {console} from "forge-std/console.sol";
 import {TeslaNFT} from "../../src/TeslaNft.sol";
 import {DogeCoin} from "../../src/Token.sol";
 
-contract Handler is Test {
+contract TeslaNftFuzzTest is Test {
     DogeCoin dogeCoin = new DogeCoin();
+    TeslaNFT tesla;
     address team = address(1);
     address futureProject = address(2);
     address charity = address(3);
@@ -19,8 +20,8 @@ contract Handler is Test {
     uint256 feeSpenderReferral = 10;
     uint256 totalDogeWinner = 1e21;
 
-    TeslaNFT tesla =
-        new TeslaNFT(
+    function setUp() public {
+         tesla = new TeslaNFT(
             address(dogeCoin),
             team,
             futureProject,
@@ -33,6 +34,7 @@ contract Handler is Test {
             feeSpenderReferral,
             totalDogeWinner
         );
+    }
 
     function testFuzzTransfersToOwners(
         address user,
@@ -102,7 +104,6 @@ contract Handler is Test {
         ) {
             return;
         }
-
 
         uint256 nftToCarPercentage = tesla.getNftToCarPercentage();
         uint256 betFeePercentage = tesla.getBetFeePercentage();

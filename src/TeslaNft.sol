@@ -394,7 +394,7 @@ contract TeslaNFT is ERC721URIStorage {
     //////////////////////////////////////////////////////////////*/
 
     function createWinnerTotalPlayers(string memory _code) internal {
-        if (createLock) {
+        if (winnerTotalLock) {
             revert DogeTicket__ReentrencyCall();
         }
         winnerTotalLock = true;
@@ -436,7 +436,7 @@ contract TeslaNFT is ERC721URIStorage {
     }
 
     function createWinnerNewPlayers(string memory _code) internal {
-        if (createLock) {
+        if (winnerNewLock) {
             revert DogeTicket__ReentrencyCall();
         }
         winnerNewLock = true;
