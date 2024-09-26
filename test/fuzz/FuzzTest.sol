@@ -21,7 +21,7 @@ contract TeslaNftFuzzTest is Test {
     uint256 totalDogeWinner = 1e21;
 
     function setUp() public {
-         tesla = new TeslaNFT(
+        tesla = new TeslaNFT(
             address(dogeCoin),
             team,
             futureProject,
@@ -41,13 +41,12 @@ contract TeslaNftFuzzTest is Test {
         string memory tokenURI,
         uint256 totalPrice,
         string memory referralCode,
-        bytes32 upReferral,
+        string memory upReferral,
         uint256 totalCarPrice
     ) public {
-        if (totalPrice > 1e30 || totalCarPrice < 1e18) {
+        if (totalPrice > 1e30 || totalPrice < 4e23) {
             return;
         }
-
         if (
             user == address(0) ||
             user == address(this) ||
@@ -88,10 +87,10 @@ contract TeslaNftFuzzTest is Test {
         string memory tokenURI,
         uint256 totalPrice,
         string memory referralCode,
-        bytes32 upReferral,
+        string memory upReferral,
         uint256 totalCarPrice
     ) public {
-        if (totalPrice > 1e30 || totalCarPrice < 1e18) {
+        if (totalPrice > 1e30 || totalPrice < 4e23) {
             return;
         }
 

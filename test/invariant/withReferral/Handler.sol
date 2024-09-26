@@ -64,8 +64,7 @@ contract Handler is Test {
         string memory referralCode,
         uint256 totalCarPrice
     ) public {
-        vm.assume(totalPrice >= 1e18 && totalPrice <= 1e30);
-        vm.assume(totalCarPrice >= 1e18 && totalPrice <= 1e30);
+        vm.assume(totalPrice >= 4e23 && totalPrice <= 1e30);
 
         vm.assume(
             user != address(0) &&
@@ -134,7 +133,7 @@ contract Handler is Test {
                 (10000 + betFeePercentage)) / 1e9);
 
             dogeCoin.transfer(user, transferAmount);
-            bytes32 upReferral = tesla.getReferralCodeById(1);
+            string memory upReferral = tesla.getReferralCodeById(1);
             vm.startPrank(user);
             dogeCoin.approve(address(tesla), transferAmount);
             tesla.createToken(

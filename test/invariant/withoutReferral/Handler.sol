@@ -59,11 +59,10 @@ contract Handler is Test {
         string memory tokenURI,
         uint256 totalPrice,
         string memory referralCode,
-        bytes32 upReferral,
+        string memory upReferral,
         uint256 totalCarPrice
     ) public {
-        vm.assume(totalPrice >= 1e18 && totalPrice <= 1e30);
-        vm.assume(totalCarPrice >= 1e18 && totalPrice <= 1e30);
+        vm.assume(totalPrice >= 4e23 && totalPrice <= 1e30);
 
         vm.assume(
             user != address(0) &&

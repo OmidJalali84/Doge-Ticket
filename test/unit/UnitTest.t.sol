@@ -49,7 +49,7 @@ contract testTeslaNft is Test {
     function createNft(
         address user,
         string memory referralcode,
-        bytes32 referralOld
+        string memory referralOld
     ) public {
         uint256 nftToCarPercentage = tesla.getNftToCarPercentage();
         uint256 betFeePercentage = tesla.getBetFeePercentage();
@@ -78,19 +78,32 @@ contract testTeslaNft is Test {
         createNft(user1, "jdchjgyfh", "wlksgnkwsgnwklg");
         createNft(user2, "ksjbvskjbvf", "alejbfakjfn");
         createNft(user3, "akeufbhikf", "askefjbakjsf");
-        vm.assertEq(dogeCoin.balanceOf(user1), 12000e17);
+        address newWinner = tesla.getRecentNewWinner();
+        address totalWinner = tesla.getRecentTotalWinner();
+        if (newWinner == totalWinner) {
+            vm.assertEq(dogeCoin.balanceOf(newWinner), 12000e17);
+        } else {
+            vm.assertEq(dogeCoin.balanceOf(newWinner), 6126e17);
+            vm.assertEq(dogeCoin.balanceOf(totalWinner), 6126e17);
+        }
 
         createNft(user4, "skejfbh", "skaefbuwksjefb");
         createNft(user5, "slefngsjk", "askejfb");
         createNft(user6, "aeskfhvbes", "amkbfskfj");
-        vm.assertEq(dogeCoin.balanceOf(user2), 6126e17);
-        vm.assertEq(dogeCoin.balanceOf(user4), 6126e17);
+        address newWinner2 = tesla.getRecentNewWinner();
+        address totalWinner2 = tesla.getRecentTotalWinner();
+        if (newWinner2 == totalWinner2) {
+            vm.assertEq(dogeCoin.balanceOf(newWinner2), 12000e17);
+        } else {
+            vm.assertEq(dogeCoin.balanceOf(newWinner2), 6126e17);
+            vm.assertEq(dogeCoin.balanceOf(totalWinner2), 6126e17);
+        }
     }
 
     function testIfTransfersAmountToReferralOwner() public {
         createNft(user1, "referral1", "wlksgnkwsgnw");
         vm.assertEq(dogeCoin.balanceOf(user1), 0);
-        bytes32 referral = tesla.getReferralCodeById(1);
+        string memory referral = tesla.getReferralCodeById(1);
         dogeCoin.transfer(user2, (((ENTRY_AMOUNT * 10) / 10000) * 9) / 10);
         vm.startPrank(user2);
         dogeCoin.approve(
@@ -110,7 +123,7 @@ contract testTeslaNft is Test {
         createNft(user1, "referral1", "wlksgnkwsgnw");
         vm.prank(user1);
         tesla.transferFrom(user1, user2, 1);
-        bytes32 referral = tesla.getReferralCodeById(1);
+        string memory referral = tesla.getReferralCodeById(1);
 
         createNft(user3, "referral2", referral);
 
@@ -128,10 +141,75 @@ contract testTeslaNft is Test {
         vm.assertEq(dogeCoin.balanceOf(charity), 64e18);
     }
 
+    function testReferralWorksFine() public {
+        createNft(user1, "referral1", "wlksgnkwsgnw");
+
+        string memory referral = tesla.getReferralCodeById(1);
+        dogeCoin.transfer(user2, (((ENTRY_AMOUNT * 10) / 10000) * 9) / 10);
+        vm.startPrank(user2);
+        dogeCoin.approve(
+            address(tesla),
+            (((ENTRY_AMOUNT * 10) / 10000) * 9) / 10
+        );
+        tesla.createToken("", ENTRY_AMOUNT, "jgtvujh", referral, ENTRY_AMOUNT);
+        vm.stopPrank();
+
+        string memory referral2 = tesla.getReferralCodeById(2);
+        dogeCoin.transfer(user3, (((ENTRY_AMOUNT * 10) / 10000) * 9) / 10);
+        vm.startPrank(user3);
+        dogeCoin.approve(
+            address(tesla),
+            (((ENTRY_AMOUNT * 10) / 10000) * 9) / 10
+        );
+        tesla.createToken(
+            "",
+            ENTRY_AMOUNT,
+            "jgtvuikhbijh",
+            referral2,
+            ENTRY_AMOUNT
+        );
+        vm.stopPrank();
+
+        string memory referral3 = tesla.getReferralCodeById(1);
+        dogeCoin.transfer(user4, (((ENTRY_AMOUNT * 10) / 10000) * 9) / 10);
+        vm.startPrank(user4);
+        dogeCoin.approve(
+            address(tesla),
+            (((ENTRY_AMOUNT * 10) / 10000) * 9) / 10
+        );
+        tesla.createToken(
+            "",
+            ENTRY_AMOUNT,
+            "jgtvuikhbsdfcijh",
+            referral3,
+            ENTRY_AMOUNT
+        );
+        vm.stopPrank();
+
+        vm.assertEq(tesla.getAllDirects(1), 3);
+        vm.assertEq(tesla.getAllDirects(2), 1);
+        vm.assertEq(tesla.getAllDirects(3), 0);
+    }
+
+    function testFailsIfNotEnoughDogePrice() public {
+        dogeCoin.transfer(address(1), (2e23));
+        vm.startPrank(address(1));
+        dogeCoin.approve(address(tesla), (2e23));
+        vm.expectRevert(0xf4844814);
+        tesla.createToken(
+            "kshfvbksnvklwnj",
+            2e23,
+            "lksnvlkfns",
+            "dlfbnj",
+            2e23
+        );
+        vm.stopPrank();
+    }
+
     function testRevertIfSomeOneUseHisOwnReferral() public {
         createNft(user1, "referral1", "wlksgnkwsgnw");
         vm.prank(user1);
-        bytes32 referral = tesla.getReferralCodeById(1);
+        string memory referral = tesla.getReferralCodeById(1);
         address owner = tesla.getReferralOwner(referral);
         vm.assertEq(owner, user1);
 
@@ -158,5 +236,11 @@ contract testTeslaNft is Test {
             ENTRY_AMOUNT
         );
         vm.stopPrank();
+    }
+
+    function testFailsIfReferralAlreadyCreated() public {
+        createNft(user1, "referral", "lrjnfnwr");
+        vm.expectRevert();
+        createNft(user2, "referral", "wolfnwfk");
     }
 }

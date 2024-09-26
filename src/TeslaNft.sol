@@ -29,10 +29,13 @@ struct ListedToken {
     uint256 betId;
     address payable owner;
     uint256 price;
-    bytes32 refral;
+    string refral;
     uint256 totalreferralUsed;
     bool listed;
     uint256 totalPriceUSD;
+    uint256 uplineId;
+    uint256 depth;
+    uint256 allDirects;
 }
 
 struct Player {
@@ -53,6 +56,7 @@ contract TeslaNFT is ERC721URIStorage {
     error DogeTicket__ReferralAlreadyCreated();
     error DogeTicket__ReentrencyCall();
     error DogeTicket__TransferFailed();
+    error DogeTicket__IncufficientTicketPrice();
 
     /*//////////////////////////////////////////////////////////////
                             STATE VARIABLES
@@ -60,14 +64,16 @@ contract TeslaNFT is ERC721URIStorage {
 
     //Mappings
     mapping(uint256 => ListedToken) private idToListedToken;
-    mapping(uint256 tokenId => bytes32 referral) private tokenIdToReferral;
-    mapping(bytes32 referralCode => uint256 tokenId) private referralToTokenId;
-    mapping(bytes32 referralCode => address ownerReferralCode)
+    mapping(uint256 tokenId => string referral) private tokenIdToReferral;
+    mapping(string referralCode => uint256 tokenId) private referralToTokenId;
+    mapping(string referralCode => address ownerReferralCode)
         private referralToOwner;
-    mapping(bytes32 referralCode => bool hasCreated) private referralHasCreated;
+    mapping(string referralCode => bool hasCreated) private referralHasCreated;
+    mapping(address user => uint256 nfts) private usersNfts;
 
     Player[] private totalPlayers;
     Player[] private newplayers;
+    address[] private users;
 
     //Counter Variables
     using Counters for Counters.Counter;
@@ -90,7 +96,7 @@ contract TeslaNFT is ERC721URIStorage {
     uint256 public feeOwnerReferral;
     uint256 public feeSpenderReferral;
     uint256 public totalPool;
-
+    uint256 public constant MINIMUM_TICKET_PRICE = 300000e18;
     //Getter variables
     address public recentTotalWinner;
     address public recentNewWinner;
@@ -123,7 +129,7 @@ contract TeslaNFT is ERC721URIStorage {
         string _tokenURI,
         uint256 indexed _lotteryId,
         uint256 _timestamp,
-        bytes32 _referralCode,
+        string _referralCode,
         uint256 _totalPriceUSD
     );
     event CreateBet(
@@ -185,8 +191,9 @@ contract TeslaNFT is ERC721URIStorage {
         uint256 tokenId
     ) public virtual override(ERC721, IERC721) {
         super.transferFrom(from, to, tokenId);
-        bytes32 referral = tokenIdToReferral[tokenId];
+        string memory referral = tokenIdToReferral[tokenId];
         referralToOwner[referral] = to;
+        usersNfts[msg.sender]--;
     }
 
     function safeTransferFrom(
@@ -196,8 +203,9 @@ contract TeslaNFT is ERC721URIStorage {
         bytes memory data
     ) public virtual override(ERC721, IERC721) {
         super.safeTransferFrom(from, to, tokenId, data);
-        bytes32 referral = tokenIdToReferral[tokenId];
+        string memory referral = tokenIdToReferral[tokenId];
         referralToOwner[referral] = to;
+        usersNfts[msg.sender]--;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -208,7 +216,7 @@ contract TeslaNFT is ERC721URIStorage {
         string memory tokenURI,
         uint256 totalCarPrice,
         string memory _referralCode,
-        bytes32 _upReferral,
+        string memory _upReferral,
         uint256 _totalPriceUSD
     ) external {
         if (createLock) {
@@ -216,16 +224,21 @@ contract TeslaNFT is ERC721URIStorage {
         }
         createLock = true;
 
-        bytes32 referralCode = generate_bytes_refral(_referralCode);
-        if (referralHasCreated[referralCode]) {
+        if (totalCarPrice < MINIMUM_TICKET_PRICE) {
+            revert DogeTicket__IncufficientTicketPrice();
+        }
+
+        if (referralHasCreated[_referralCode]) {
             revert DogeTicket__ReferralAlreadyCreated();
         }
-        referralHasCreated[referralCode] = true;
+        referralHasCreated[_referralCode] = true;
 
         _tokenIds.increment();
         uint256 currentTokenId = _tokenIds.current();
         _safeMint(msg.sender, currentTokenId);
         _setTokenURI(currentTokenId, tokenURI);
+        usersNfts[msg.sender]++;
+        users.push(msg.sender);
 
         uint256 mintPrice = (totalCarPrice * nftToCarPecentage) / 10000;
         mintPrice = ((mintPrice * (10000 + betFeePercentage)) / 10000);
@@ -256,21 +269,9 @@ contract TeslaNFT is ERC721URIStorage {
 
             totalPool += (mintPrice * feePool) / 100;
 
-            referralToOwner[referralCode] = msg.sender;
-            tokenIdToReferral[currentTokenId] = referralCode;
-            referralToTokenId[referralCode] = currentTokenId;
-
-            idToListedToken[currentTokenId] = ListedToken(
-                tokenURI,
-                currentTokenId,
-                betId,
-                payable(msg.sender),
-                mintPrice,
-                referralCode,
-                0,
-                true,
-                _totalPriceUSD
-            );
+            referralToOwner[_referralCode] = msg.sender;
+            tokenIdToReferral[currentTokenId] = _referralCode;
+            referralToTokenId[_referralCode] = currentTokenId;
 
             totalPlayers.push(
                 Player({
@@ -298,8 +299,34 @@ contract TeslaNFT is ERC721URIStorage {
                 tokenURI,
                 betId,
                 block.timestamp,
-                referralCode,
+                _referralCode,
                 _totalPriceUSD
+            );
+
+            uint256 _uplineId = referralToTokenId[_upReferral];
+            idToListedToken[_uplineId].allDirects++;
+            uint256 depthChild = idToListedToken[_uplineId].depth + 1;
+
+            uint256 upperId = idToListedToken[_uplineId].uplineId;
+
+            for (uint256 j; j < idToListedToken[_uplineId].depth; j++) {
+                idToListedToken[upperId].allDirects++;
+                upperId = idToListedToken[upperId].uplineId;
+            }
+
+            idToListedToken[currentTokenId] = ListedToken(
+                tokenURI,
+                currentTokenId,
+                betId,
+                payable(msg.sender),
+                mintPrice,
+                _referralCode,
+                0,
+                true,
+                _totalPriceUSD,
+                _uplineId,
+                depthChild,
+                0
             );
         } else {
             bool success = IERC20(dogeCoinToken).transferFrom(
@@ -315,8 +342,9 @@ contract TeslaNFT is ERC721URIStorage {
 
             totalPool += (mintPrice * feePool) / 100;
 
-            referralToOwner[referralCode] = msg.sender;
-            tokenIdToReferral[currentTokenId] = referralCode;
+            referralToOwner[_referralCode] = msg.sender;
+            tokenIdToReferral[currentTokenId] = _referralCode;
+            referralToTokenId[_referralCode] = currentTokenId;
 
             idToListedToken[currentTokenId] = ListedToken(
                 tokenURI,
@@ -324,10 +352,13 @@ contract TeslaNFT is ERC721URIStorage {
                 betId,
                 payable(msg.sender),
                 mintPrice,
-                referralCode,
+                _referralCode,
                 0,
                 true,
-                _totalPriceUSD
+                _totalPriceUSD,
+                0,
+                0,
+                0
             );
 
             totalPlayers.push(
@@ -356,7 +387,7 @@ contract TeslaNFT is ERC721URIStorage {
                 tokenURI,
                 betId,
                 block.timestamp,
-                referralCode,
+                _referralCode,
                 _totalPriceUSD
             );
         }
@@ -581,16 +612,16 @@ contract TeslaNFT is ERC721URIStorage {
 
     function getReferralCodeById(
         uint256 tokenId
-    ) public view returns (bytes32) {
+    ) public view returns (string memory) {
         return tokenIdToReferral[tokenId];
     }
 
-    function getReferralOwner(bytes32 referral) public view returns (address) {
+    function getReferralOwner(string memory referral) public view returns (address) {
         return referralToOwner[referral];
     }
 
     function getTokenIdByReferral(
-        bytes32 referral
+        string memory referral
     ) public view returns (uint256) {
         return referralToTokenId[referral];
     }
@@ -622,9 +653,20 @@ contract TeslaNFT is ERC721URIStorage {
     }
 
     function getReferralHasCreated(
-        string memory referralString
+        string memory referral
     ) public view returns (bool) {
-        bytes32 referralBytes = keccak256(abi.encodePacked(referralString));
-        return referralHasCreated[referralBytes];
+        return referralHasCreated[referral];
+    }
+
+    function getAllDirects(uint256 id) public view returns (uint256) {
+        return idToListedToken[id].allDirects;
+    }
+
+    function getUserNftsCount(address user) public view returns (uint256) {
+        return usersNfts[user];
+    }
+
+    function getAllUsers() public view returns (address[] memory) {
+        return users;
     }
 }
