@@ -482,7 +482,7 @@ contract TeslaNFT is ERC721URIStorage {
         delete newplayers;
         totalPool = 0;
         betId++;
-        betFeePercentage = betFeePercentage + 210;
+        betFeePercentage = betFeePercentage + 110;
         winnerNewLock = false;
     }
 
@@ -516,12 +516,6 @@ contract TeslaNFT is ERC721URIStorage {
         if (!success) {
             revert DogeTicket__TransferFailed();
         }
-    }
-
-    function generate_bytes_refral(
-        string memory _pass
-    ) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked(_pass));
     }
 
     function _randomModulo(
@@ -616,7 +610,9 @@ contract TeslaNFT is ERC721URIStorage {
         return tokenIdToReferral[tokenId];
     }
 
-    function getReferralOwner(string memory referral) public view returns (address) {
+    function getReferralOwner(
+        string memory referral
+    ) public view returns (address) {
         return referralToOwner[referral];
     }
 

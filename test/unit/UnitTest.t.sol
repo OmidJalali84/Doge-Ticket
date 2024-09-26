@@ -83,8 +83,8 @@ contract testTeslaNft is Test {
         if (newWinner == totalWinner) {
             vm.assertEq(dogeCoin.balanceOf(newWinner), 12000e17);
         } else {
-            vm.assertEq(dogeCoin.balanceOf(newWinner), 6126e17);
-            vm.assertEq(dogeCoin.balanceOf(totalWinner), 6126e17);
+            vm.assertEq(dogeCoin.balanceOf(newWinner), 6000e17);
+            vm.assertEq(dogeCoin.balanceOf(totalWinner), 6000e17);
         }
 
         createNft(user4, "skejfbh", "skaefbuwksjefb");
@@ -93,10 +93,10 @@ contract testTeslaNft is Test {
         address newWinner2 = tesla.getRecentNewWinner();
         address totalWinner2 = tesla.getRecentTotalWinner();
         if (newWinner2 == totalWinner2) {
-            vm.assertEq(dogeCoin.balanceOf(newWinner2), 12000e17);
+            vm.assertEq(dogeCoin.balanceOf(newWinner2), 12132e17);
         } else {
-            vm.assertEq(dogeCoin.balanceOf(newWinner2), 6126e17);
-            vm.assertEq(dogeCoin.balanceOf(totalWinner2), 6126e17);
+            vm.assertEq(dogeCoin.balanceOf(newWinner2), 6066e17);
+            vm.assertEq(dogeCoin.balanceOf(totalWinner2), 6066e17);
         }
     }
 
